@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { buildQuestion } from '../lib/quiz';
 import { applyAnswer, masteredCount, selectNextWord, seenCount } from '../lib/srs';
 import { ChoiceButton, type ChoiceVisual } from '../components/ChoiceButton';
+import { SpeakButton } from '../components/SpeakButton';
 import { StatsBar } from '../components/StatsBar';
 import { colors, radius, spacing } from '../theme';
 import type { Pos, Progress, Question, Word } from '../types';
@@ -123,9 +124,14 @@ export function QuizScreen({ words, progress, onProgressChange, onBack, title }:
 
         <View style={styles.promptCard}>
           <Text style={styles.promptHint}>{promptHint}</Text>
-          <Text style={[styles.prompt, question.direction === 'ja2en' && styles.promptJa]}>
-            {question.prompt}
-          </Text>
+          <View style={styles.promptRow}>
+            <Text style={[styles.prompt, question.direction === 'ja2en' && styles.promptJa]}>
+              {question.prompt}
+            </Text>
+            {/* 英単語が見えているとき（英→日）だけ読み上げボタンを出す。
+                日→英では答えになってしまうため、正解後に解説側で出す。 */}
+            {question.direction === 'en2ja' && <SpeakButton text={w.word} />}
+          </View>
         </View>
 
         <View>
@@ -163,6 +169,7 @@ export function QuizScreen({ words, progress, onProgressChange, onBack, title }:
               <View style={styles.posTag}>
                 <Text style={styles.posText}>{POS_LABEL[w.pos]}</Text>
               </View>
+              <SpeakButton text={w.word} size="sm" />
             </View>
             <Text style={styles.explainMeaning}>{w.meaning}</Text>
 
@@ -221,6 +228,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   promptHint: { color: colors.textMuted, fontSize: 13, marginBottom: spacing(1.5) },
+  promptRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing(1.5) },
   prompt: { color: colors.text, fontSize: 34, fontWeight: '800', textAlign: 'center' },
   promptJa: { fontSize: 26 },
   feedback: { marginTop: spacing(2), borderRadius: radius.md, borderWidth: 1, padding: spacing(2) },
