@@ -1,31 +1,14 @@
-// メイン画面：4択クイズ。回答→正誤＋解説→次の問題、をひたすら繰り返す。
+// クイズ画面：渡された単語プールから4択を出題。回答→正誤＋解説→次の問題。
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import wordsData from '../data/words.json';
 import { buildQuestion } from '../lib/quiz';
-import {
-  applyAnswer,
-  loadProgress,
-  masteredCount,
-  saveProgress,
-  selectNextWord,
-  seenCount,
-} from '../lib/srs';
+import { applyAnswer, masteredCount, selectNextWord, seenCount } from '../lib/srs';
 import { ChoiceButton, type ChoiceVisual } from '../components/ChoiceButton';
 import { StatsBar } from '../components/StatsBar';
 import { colors, radius, spacing } from '../theme';
 import type { Pos, Progress, Question, Word } from '../types';
-
-const WORDS = wordsData as Word[];
 
 const POS_LABEL: Record<Pos, string> = {
   noun: '名詞',
@@ -38,52 +21,86 @@ const POS_LABEL: Record<Pos, string> = {
   phrase: '熟語',
 };
 
-export function QuizScreen() {
-  const [progress, setProgress] = useState<Progress | null>(null);
+interface Props {
+  /** 出題対象の単語プール */
+  words: Word[];
+  /** 全体の進捗 */
+  progress: Progress;
+  /** 回答などで進捗が変わったときに呼ぶ */
+  onProgressChange: (p: Progress) => void;
+  /** TOPに戻る */
+  onBack: () => void;
+  /** ヘッダーに出すタイトル */
+  title: string;
+}
+
+export function QuizScreen({ words, progress, onProgressChange, onBack, title }: Props) {
   const [question, setQuestion] = useState<Question | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
 
-  // 起動時：進捗を読み込み、最初の問題を作る
+  // プールが決まったら最初の問題を作る
   useEffect(() => {
-    (async () => {
-      const p = await loadProgress();
-      const word = selectNextWord(WORDS, p);
-      setProgress(p);
-      setQuestion(buildQuestion(word, WORDS));
-    })();
-  }, []);
+    if (words.length === 0) {
+      setQuestion(null);
+      return;
+    }
+    const word = selectNextWord(words, progress);
+    setQuestion(buildQuestion(word, words));
+    setSelected(null);
+    // progress を依存に入れると毎回作り直してしまうため、プール変化時のみ初期化
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [words]);
 
   const answered = selected !== null;
   const isCorrect = answered && question !== null && selected === question.answerIndex;
 
   const onSelect = useCallback(
     (index: number) => {
-      if (selected !== null || !question || !progress) return;
+      if (selected !== null || !question) return;
       setSelected(index);
       const correct = index === question.answerIndex;
-      const updated = applyAnswer(progress, question.word.id, correct);
-      setProgress(updated);
-      void saveProgress(updated);
+      onProgressChange(applyAnswer(progress, question.word.id, correct));
     },
-    [selected, question, progress],
+    [selected, question, progress, onProgressChange],
   );
 
   const onNext = useCallback(() => {
-    if (!progress || !question) return;
-    const word = selectNextWord(WORDS, progress, Date.now(), question.word.id);
-    setQuestion(buildQuestion(word, WORDS));
+    if (!question) return;
+    const word = selectNextWord(words, progress, Date.now(), question.word.id);
+    setQuestion(buildQuestion(word, words));
     setSelected(null);
-  }, [progress, question]);
+  }, [words, progress, question]);
 
   const accuracy = useMemo(() => {
-    if (!progress || progress.totalAnswered === 0) return 0;
+    if (progress.totalAnswered === 0) return 0;
     return progress.totalCorrect / progress.totalAnswered;
   }, [progress]);
 
-  if (!progress || !question) {
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={onBack} hitSlop={12} accessibilityRole="button">
+        <Text style={styles.back}>‹ TOP</Text>
+      </Pressable>
+      <Text style={styles.title} numberOfLines={1}>
+        {title}
+      </Text>
+      <View style={styles.headerSpacer} />
+    </View>
+  );
+
+  // プールが空（例：復習対象がまだ無い）
+  if (words.length === 0 || !question) {
     return (
-      <SafeAreaView style={styles.loading}>
-        <ActivityIndicator color={colors.primary} size="large" />
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        {header}
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>
+            出題できる単語がありません。{'\n'}まずは他のモードで学習しましょう。
+          </Text>
+          <Pressable onPress={onBack} style={styles.emptyBtn} accessibilityRole="button">
+            <Text style={styles.nextLabel}>TOPに戻る</Text>
+          </Pressable>
+        </View>
       </SafeAreaView>
     );
   }
@@ -94,26 +111,19 @@ export function QuizScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-      >
+      {header}
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <StatsBar
           streak={progress.streak}
           accuracy={accuracy}
           seen={seenCount(progress)}
           mastered={masteredCount(progress)}
-          total={WORDS.length}
+          total={words.length}
         />
 
         <View style={styles.promptCard}>
           <Text style={styles.promptHint}>{promptHint}</Text>
-          <Text
-            style={[
-              styles.prompt,
-              question.direction === 'ja2en' && styles.promptJa,
-            ]}
-          >
+          <Text style={[styles.prompt, question.direction === 'ja2en' && styles.promptJa]}>
             {question.prompt}
           </Text>
         </View>
@@ -140,16 +150,10 @@ export function QuizScreen() {
 
         {answered && (
           <View
-            style={[
-              styles.feedback,
-              isCorrect ? styles.feedbackCorrect : styles.feedbackWrong,
-            ]}
+            style={[styles.feedback, isCorrect ? styles.feedbackCorrect : styles.feedbackWrong]}
           >
             <Text
-              style={[
-                styles.feedbackTitle,
-                { color: isCorrect ? colors.correct : colors.wrong },
-              ]}
+              style={[styles.feedbackTitle, { color: isCorrect ? colors.correct : colors.wrong }]}
             >
               {isCorrect ? '正解！' : '不正解'}
             </Text>
@@ -185,16 +189,27 @@ export function QuizScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  loading: {
-    flex: 1,
-    backgroundColor: colors.bg,
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: spacing(2),
+    paddingVertical: spacing(1.5),
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  scroll: {
-    padding: spacing(2),
-    paddingBottom: spacing(3),
+  back: { color: colors.primary, fontSize: 16, fontWeight: '700', width: 64 },
+  title: { flex: 1, color: colors.text, fontSize: 16, fontWeight: '700', textAlign: 'center' },
+  headerSpacer: { width: 64 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing(3) },
+  emptyText: { color: colors.textMuted, fontSize: 16, textAlign: 'center', lineHeight: 24 },
+  emptyBtn: {
+    marginTop: spacing(3),
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing(1.5),
+    paddingHorizontal: spacing(4),
   },
+  scroll: { padding: spacing(2), paddingBottom: spacing(3) },
   promptCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
@@ -205,76 +220,25 @@ const styles = StyleSheet.create({
     marginVertical: spacing(2.5),
     alignItems: 'center',
   },
-  promptHint: {
-    color: colors.textMuted,
-    fontSize: 13,
-    marginBottom: spacing(1.5),
-  },
-  prompt: {
-    color: colors.text,
-    fontSize: 34,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  promptJa: {
-    fontSize: 26,
-  },
-  feedback: {
-    marginTop: spacing(2),
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: spacing(2),
-  },
-  feedbackCorrect: {
-    backgroundColor: colors.correctBg,
-    borderColor: colors.correct,
-  },
-  feedbackWrong: {
-    backgroundColor: colors.wrongBg,
-    borderColor: colors.wrong,
-  },
-  feedbackTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: spacing(1),
-  },
-  explainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing(1),
-  },
-  explainWord: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: '700',
-  },
+  promptHint: { color: colors.textMuted, fontSize: 13, marginBottom: spacing(1.5) },
+  prompt: { color: colors.text, fontSize: 34, fontWeight: '800', textAlign: 'center' },
+  promptJa: { fontSize: 26 },
+  feedback: { marginTop: spacing(2), borderRadius: radius.md, borderWidth: 1, padding: spacing(2) },
+  feedbackCorrect: { backgroundColor: colors.correctBg, borderColor: colors.correct },
+  feedbackWrong: { backgroundColor: colors.wrongBg, borderColor: colors.wrong },
+  feedbackTitle: { fontSize: 18, fontWeight: '800', marginBottom: spacing(1) },
+  explainRow: { flexDirection: 'row', alignItems: 'center', gap: spacing(1) },
+  explainWord: { color: colors.text, fontSize: 22, fontWeight: '700' },
   posTag: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.sm,
     paddingHorizontal: spacing(1),
     paddingVertical: 2,
   },
-  posText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  explainMeaning: {
-    color: colors.text,
-    fontSize: 16,
-    marginTop: 2,
-    marginBottom: spacing(1.5),
-  },
-  exampleEn: {
-    color: colors.text,
-    fontSize: 15,
-    fontStyle: 'italic',
-  },
-  exampleJa: {
-    color: colors.textMuted,
-    fontSize: 14,
-    marginTop: 2,
-  },
+  posText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  explainMeaning: { color: colors.text, fontSize: 16, marginTop: 2, marginBottom: spacing(1.5) },
+  exampleEn: { color: colors.text, fontSize: 15, fontStyle: 'italic' },
+  exampleJa: { color: colors.textMuted, fontSize: 14, marginTop: 2 },
   footer: {
     padding: spacing(2),
     borderTopWidth: 1,
@@ -287,12 +251,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing(2),
     alignItems: 'center',
   },
-  nextBtnPressed: {
-    opacity: 0.85,
-  },
-  nextLabel: {
-    color: colors.primaryText,
-    fontSize: 17,
-    fontWeight: '700',
-  },
+  nextBtnPressed: { opacity: 0.85 },
+  nextLabel: { color: colors.primaryText, fontSize: 17, fontWeight: '700' },
 });

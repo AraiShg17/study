@@ -3,6 +3,9 @@
 /** 品詞 */
 export type Pos = 'noun' | 'verb' | 'adj' | 'adv' | 'prep' | 'conj' | 'pron' | 'phrase';
 
+/** 難易度レベル（頻度ランク帯）。beginner=初級 / intermediate=中級 / advanced=上級 */
+export type Level = 'beginner' | 'intermediate' | 'advanced';
+
 /** 単語1件。words.json の1要素に対応する。 */
 export interface Word {
   /** 安定したID（並び順を変えても変わらない） */
@@ -13,6 +16,8 @@ export interface Word {
   meaning: string;
   /** 品詞 */
   pos: Pos;
+  /** 難易度レベル（頻度帯） */
+  level: Level;
   /** 例文（英語） */
   example: string;
   /** 例文の訳（日本語） */
